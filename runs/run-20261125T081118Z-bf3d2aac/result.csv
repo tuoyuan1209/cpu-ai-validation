@@ -1,0 +1,6 @@
+﻿id,name,status,expected,actual,reason
+AFF01,显式CPU绑定与运行采样,PASS,CPU 6; 100次采样,允许=[6]; 实际=[6]; 样本=100,expected=CPU 6; 100次采样; actual=允许=[6]; 实际=[6]; 样本=100
+AFF02,显式CPU绑定与运行采样,PASS,CPU 0; 100次采样,允许=[0]; 实际=[0]; 样本=100,expected=CPU 0; 100次采样; actual=允许=[0]; 实际=[0]; 样本=100
+AFF03,KVM vCPU实际线程亲和性,PASS,"{0: [0], 1: [1], 2: [2], 3: [3]}","{0: [0], 1: [1], 2: [2], 3: [3]}","expected={0: [0], 1: [1], 2: [2], 3: [3]}; actual={0: [0], 1: [1], 2: [2], 3: [3]}"
+AFF04,QEMU非vCPU线程亲和性,PASS,"非vCPU线程允许范围属于[0, 1, 2, 3]",线程数=11; 超范围={},"expected=非vCPU线程允许范围属于[0, 1, 2, 3]; actual=线程数=11; 超范围={}"
+AFF05,QEMU线程运行快照,PASS,成功采集PSR快照,已采集（仅最近运行CPU，不证明持续绑定）,expected=成功采集PSR快照; actual=已采集（仅最近运行CPU，不证明持续绑定）

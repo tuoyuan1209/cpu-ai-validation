@@ -1,0 +1,42 @@
+{
+  "run_id": "run-20261125T061237Z-212ea492",
+  "overall": "PASS",
+  "cases": [
+    {
+      "id": "TC01",
+      "name": "SSH connection",
+      "status": "PASS",
+      "reason": "SSH exit code 0"
+    },
+    {
+      "id": "TC02",
+      "name": "Trusted SSH host",
+      "status": "PASS",
+      "reason": "StrictHostKeyChecking=yes; trusted known_hosts entry"
+    },
+    {
+      "id": "TC03",
+      "name": "Remote user",
+      "status": "PASS",
+      "reason": "Remote user matches configuration"
+    },
+    {
+      "id": "TC04",
+      "name": "Kernel version",
+      "status": "PASS",
+      "reason": "Kernel output captured"
+    },
+    {
+      "id": "TC05",
+      "name": "sudo",
+      "status": "PASS",
+      "reason": "sudo returned UID 0"
+    },
+    {
+      "id": "TC06",
+      "name": "Evidence presence",
+      "status": "PASS",
+      "reason": "Recorded command evidence exists"
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "run_id": "run-20261125T062913Z-a67a2cd9",
+  "stage": "provision-preflight",
+  "overall": "PASS",
+  "evidence_present": true,
+  "cases": [
+    {
+      "id": "TP01",
+      "name": "OS release",
+      "status": "PASS",
+      "reason": "Nonempty output captured"
+    },
+    {
+      "id": "TP02",
+      "name": "CPU topology",
+      "status": "PASS",
+      "reason": "Nonempty output captured"
+    },
+    {
+      "id": "TP03",
+      "name": "Kernel version",
+      "status": "PASS",
+      "reason": "Nonempty output captured"
+    },
+    {
+      "id": "TP04",
+      "name": "cyclictest",
+      "status": "PASS",
+      "reason": "Command completed successfully"
+    },
+    {
+      "id": "TP05",
+      "name": "stress-ng",
+      "status": "PASS",
+      "reason": "Command completed successfully"
+    },
+    {
+      "id": "TP06",
+      "name": "taskset",
+      "status": "PASS",
+      "reason": "Command completed successfully"
+    },
+    {
+      "id": "TP07",
+      "name": "chrt",
+      "status": "PASS",
+      "reason": "Command completed successfully"
+    },
+    {
+      "id": "TP08",
+      "name": "numactl",
+      "status": "PASS",
+      "reason": "Command completed successfully"
+    },
+    {
+      "id": "TP09",
+      "name": "FIFO priority 80 as SSH user",
+      "status": "PASS",
+      "reason": "Command completed successfully"
+    },
+    {
+      "id": "TP10",
+      "name": "memlock soft limit",
+      "status": "PASS",
+      "reason": "Unlimited soft memlock"
+    },
+    {
+      "id": "TP11",
+      "name": "DMA latency device access as SSH user",
+      "status": "PASS",
+      "reason": "Command completed successfully"
+    },
+    {
+      "id": "TP12",
+      "name": "Isolation configuration capture",
+      "status": "PASS",
+      "reason": "Nonempty output captured"
+    }
+  ]
+}

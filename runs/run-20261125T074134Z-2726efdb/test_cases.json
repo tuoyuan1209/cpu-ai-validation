@@ -1,0 +1,130 @@
+[
+  {
+    "id": "TP01",
+    "name": "Ubuntu host"
+  },
+  {
+    "id": "TP02",
+    "name": "CPU topology"
+  },
+  {
+    "id": "TP03",
+    "name": "Kernel version"
+  },
+  {
+    "id": "TP04",
+    "name": "cyclic[REDACTED]"
+  },
+  {
+    "id": "TP05",
+    "name": "stress-ng"
+  },
+  {
+    "id": "TP06",
+    "name": "taskset"
+  },
+  {
+    "id": "TP07",
+    "name": "chrt"
+  },
+  {
+    "id": "TP08",
+    "name": "numactl"
+  },
+  {
+    "id": "TP09",
+    "name": "FIFO 80"
+  },
+  {
+    "id": "TP10",
+    "name": "Unlimited memlock"
+  },
+  {
+    "id": "TP11",
+    "name": "DMA device write permission"
+  },
+  {
+    "id": "TP12",
+    "name": "Isolation capture"
+  },
+  {
+    "id": "TP13",
+    "name": "Intel VT-x"
+  },
+  {
+    "id": "TP14",
+    "name": "KVM modules"
+  },
+  {
+    "id": "TP15",
+    "name": "KVM device"
+  },
+  {
+    "id": "TP16",
+    "name": "QEMU"
+  },
+  {
+    "id": "TP17",
+    "name": "libvirt tools"
+  },
+  {
+    "id": "TP18",
+    "name": "libvirt system connection"
+  },
+  {
+    "id": "TP18A",
+    "name": "Host realtime kernel"
+  },
+  {
+    "id": "TP18B",
+    "name": "Host isolated CPUs"
+  },
+  {
+    "id": "TP18C",
+    "name": "Host online CPUs"
+  },
+  {
+    "id": "TP18D",
+    "name": "Default libvirt network"
+  },
+  {
+    "id": "TP19",
+    "name": "Target VM"
+  },
+  {
+    "id": "TP21",
+    "name": "Persistent VM CPU/memory/network baseline"
+  },
+  {
+    "id": "TP20",
+    "name": "VM running"
+  },
+  {
+    "id": "TP22",
+    "name": "Live VM pinning and emulator affinity"
+  },
+  {
+    "id": "TP23",
+    "name": "Guest DHCP address"
+  },
+  {
+    "id": "TP24",
+    "name": "Guest SSH identity"
+  },
+  {
+    "id": "TP25",
+    "name": "Guest Ubuntu 24.04"
+  },
+  {
+    "id": "TP26",
+    "name": "Guest sudo"
+  },
+  {
+    "id": "TP27",
+    "name": "Guest stress-ng"
+  },
+  {
+    "id": "TP28",
+    "name": "Guest stress-ng short smoke [REDACTED]"
+  }
+]

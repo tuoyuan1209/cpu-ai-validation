@@ -1,0 +1,9 @@
+{
+  "host": "192.168.41.10",
+  "hostname": "[REDACTED]-SBCPTLCX3R100",
+  "ssh_user": "[REDACTED]",
+  "kernel": "6.17.11-intel-ese-experimental-lts-rt",
+  "vm": "cpu-isolation-vm",
+  "guest_ip": "192.168.122.44",
+  "vm_created": false
+}

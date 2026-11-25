@@ -1,0 +1,20 @@
+provision:
+  auto_install_tools: true
+  auto_fix_permissions: true
+  auto_fix_dma: false
+  auto_install_kvm: true
+  auto_load_modules: true
+  auto_start_libvirt: true
+  auto_start_network: true
+  auto_create_vm: true
+  auto_start_vm: true
+virtualization:
+  name: cpu-isolation-vm
+  guest_user: tester
+  base_image: /var/lib/libvirt/images/base/ubuntu-24.04-server-cloudimg-amd64.img
+  auto_download_image: true
+  base_image_url: https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img
+  checksum_url: https://cloud-images.ubuntu.com/releases/noble/release/SHA256SUMS
+  base_image_sha256: ''
+  download_timeout: 600
+  download_retries: 2

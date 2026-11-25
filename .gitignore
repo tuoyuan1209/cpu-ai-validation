@@ -1,0 +1,9 @@
+.env
+.env.*
+*.qcow2
+*.img
+*.iso
+*.pem
+*.key
+__pycache__/
+.venv/

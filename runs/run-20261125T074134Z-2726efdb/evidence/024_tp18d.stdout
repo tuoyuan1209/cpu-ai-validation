@@ -1,0 +1,7 @@
+Name:           default
+UUID:           5591c7b3-63c4-40a8-b7ef-b1aa8ce96c4c
+Active:         yes
+Persistent:     yes
+Autostart:      yes
+Bridge:         virbr0
+

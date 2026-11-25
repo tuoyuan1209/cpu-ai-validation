@@ -1,0 +1,7 @@
+id,name,status,reason
+TC01,SSH connection,PASS,SSH exit code 0
+TC02,Trusted SSH host,PASS,StrictHostKeyChecking=yes; trusted known_hosts entry
+TC03,Remote user,PASS,Remote user matches configuration
+TC04,Kernel version,PASS,Kernel output captured
+TC05,sudo,INCONCLUSIVE,Usable SUT_SUDO_PASSWORD not injected into process
+TC06,Evidence presence,PASS,Recorded command evidence exists

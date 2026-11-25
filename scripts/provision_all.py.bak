@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+"""CPU-02: deterministic Ubuntu host + libvirt provisioning. PyYAML/OpenSSH required."""
+import csv, datetime as dt, hashlib, ipaddress, json, os, re, shlex, subprocess, sys, time, uuid
+from pathlib import Path
+import yaml
+
+BASE=Path(__file__).resolve().parent.parent
+os.umask(0o077)
+RUN_ID=dt.datetime.now(dt.timezone.utc).strftime('run-%Y%m%dT%H%M%SZ-')+uuid.uuid4().hex[:8]
+RUN=BASE/'runs'/RUN_ID
+E=RUN/'evidence'; E.mkdir(parents=True); (BASE/'logs').mkdir(exist_ok=True)
+SECRET=os.environ.get('SUT_SUDO_PASSWORD','')
+SECRETS=[SECRET,os.environ.get('SUT_SSH_PASSWORD','')]
+CASES=[]; CHANGES=[]; RECORDS=[]; ENV={}; SSH=[]; CFG={}; P={}; V={}; GUEST=''; ROOT_OK=False
+
+def now(): return dt.datetime.now(dt.timezone.utc).isoformat()
+def safe(s):
+    if isinstance(s,bytes): s=s.decode(errors='replace')
+    for x in sorted(filter(None,SECRETS),key=len,reverse=True): s=s.replace(x,'[REDACTED]')
+    return s
+
+def scrub(v):
+    if isinstance(v,str): return safe(v)
+    if isinstance(v,list): return [scrub(x) for x in v]
+    if isinstance(v,dict): return {k:scrub(x) for k,x in v.items()}
+    return v
+
+def dump(name,obj): (RUN/name).write_text(json.dumps(scrub(obj),ensure_ascii=False,indent=2)+'\n')
+def append(name,obj):
+    with (RUN/name).open('a') as f: f.write(json.dumps(scrub(obj),ensure_ascii=False)+'\n')
+def log(s):
+    line=safe(f'{now()} [{RUN_ID}] {s}'); print(line,flush=True)
+    for p in (RUN/'progress.log',BASE/'logs/live.log'):
+        with p.open('a') as f: f.write(line+'\n'); f.flush()
+def case(cid,name,status,reason,initial='',action=''):
+    CASES.append(dict(id=cid,name=name,status=status,reason=reason,initial=initial,action=action)); log(f'{cid} {status}: {name}: {reason}')
+def run(label,cmd,root=False,guest=False,change=False,timeout=25):
+    if root and not ROOT_OK: raise RuntimeError('Host sudo not verified')
+    # Shell command is quoted once for nested SSH; password only travels on stdin.
+    if guest:
+        cmd='ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=8 -o ConnectionAttempts=1 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 '+shlex.quote(V['guest_user']+'@'+GUEST)+' '+shlex.quote(cmd)
+    if root: cmd='sudo -k -S -p "" -- timeout --kill-after=5s '+str(timeout-5)+'s sh -c '+shlex.quote(cmd)
+    argv=SSH+[cmd]; n=f'{len(RECORDS)+1:03d}_{label}'; start=now(); t=time.monotonic(); rc=None; out=err=''; timed=False
+    log('START '+n+(' [CHANGE]' if change else ''))
+    if change: append('changes.jsonl',{'label':n,'phase':'START','time':start,'command':argv}); CHANGES.append(n)
+    try:
+        env={k:v for k,v in os.environ.items() if k not in ('SUT_SUDO_PASSWORD','SUT_SSH_PASSWORD')}
+        p=subprocess.run(argv,input=SECRET+'\n' if root else '',text=True,capture_output=True,timeout=timeout,env=env)
+        rc,out,err=p.returncode,p.stdout,p.stderr
+    except subprocess.TimeoutExpired as ex: timed=True; out=ex.stdout or ''; err=ex.stderr or ''
+    except OSError as ex: err=str(ex)
+    (E/(n+'.stdout')).write_text(safe(out)); (E/(n+'.stderr')).write_text(safe(err))
+    rec=dict(label=n,argv=argv,start=start,end=now(),elapsed_s=round(time.monotonic()-t,3),exit_code=rc,timeout=timed,stdout_file='evidence/'+n+'.stdout',stderr_file='evidence/'+n+'.stderr')
+    RECORDS.append(rec); append('execution.jsonl',rec)
+    if change: append('changes.jsonl',{'label':n,'phase':'END','time':now(),'exit_code':rc,'timeout':timed})
+    log(f'END {n}: exit={rc}, timeout={timed}'); return rc,out.strip() if isinstance(out,str) else '',timed
+
+def check(cid,name,cmd,rule=lambda r,o:r==0,root=False,guest=False,repair=None,allowed=False):
+    r,o,t=run(cid.lower(),cmd,root,guest); ok=rule(r,o); initial='PASS' if ok else 'TIMEOUT' if t else 'FAIL'; action='SKIP' if ok else 'NONE'
+    if not ok and repair and allowed and not t and r not in (None,255):
+        action='REPAIR'; rr,_,tt=repair(); r,o,t=run(cid.lower()+'_verify',cmd,root,guest); ok=rr==0 and rule(r,o); t=t or tt
+    case(cid,name,'PASS' if ok else 'TIMEOUT' if t else 'FAIL','Verified' if ok else 'See execution evidence',initial,action); return ok,o
+
+def allowed(k): return P.get(k) is True
+
+def install(pkg,guest=False):
+    cmd='export DEBIAN_FRONTEND=noninteractive; apt-get -o DPkg::Lock::Timeout=30 update && apt-get -o DPkg::Lock::Timeout=30 install -y --no-install-recommends '+pkg
+    if guest: cmd='sudo -n -- timeout --kill-after=5s 540s sh -c '+shlex.quote(cmd)
+    return run('install_'+pkg.split()[0],cmd,root=not guest,guest=guest,change=True,timeout=560)
+
+def vir(cmd): return 'LC_ALL=C virsh -c qemu:///system '+cmd
+
+def cpus(s):
+    result=set()
+    for part in s.strip().split(','):
+        if not part: continue
+        a=part.split('-'); result.update(range(int(a[0]),int(a[-1])+1))
+    return result
+
+def vm_xml_ok(xml):
+    import xml.etree.ElementTree as ET
+    try:
+        d=ET.fromstring(xml); pins={int(x.attrib['vcpu']):cpus(x.attrib['cpuset']) for x in d.findall('./cputune/vcpupin')}
+        em=d.find('./cputune/emulatorpin'); mem=d.find('memory'); net=d.find('./devices/interface/source'); cpu=d.find('cpu')
+        return (d.attrib.get('type')=='kvm' and int(d.findtext('vcpu'))==4 and mem.attrib.get('unit','KiB')=='KiB' and int(mem.text)==4194304 and pins=={i:{i} for i in range(4)} and em is not None and cpus(em.attrib['cpuset'])==set(range(4)) and net is not None and net.attrib.get('network')=='default' and cpu is not None and cpu.attrib.get('mode')=='host-passthrough')
+    except (ValueError,TypeError,KeyError,AttributeError,ET.ParseError): return False
+
+def create_vm():
+    image=V.get('base_image',''); digest=V.get('base_image_sha256','')
+    if not image.startswith('/') or not re.fullmatch('[a-fA-F0-9]{64}',digest): raise RuntimeError('VM creation blocked: configure verified base_image and SHA256 on SUT')
+    # No overwrite; shell noclobber is supplemented by an atomic private staging directory.
+    name=V['name']; q=shlex.quote; user=CFG['ssh_user']; pub='/home/'+user+'/.ssh/id_ed25519.pub'; disk='/var/lib/libvirt/images/'+name+'.qcow2'; seed='/var/lib/libvirt/images/'+name+'-seed.iso'
+    if run('creation_prereqs','test -r '+q(pub)+' && ssh-keygen -lf '+q(pub))[0]!=0: raise RuntimeError('Host guest-login public key missing; create dedicated host key before creating VM')
+    if install('virtinst cloud-image-utils') [0]!=0: raise RuntimeError('VM creation tools installation failed')
+    # Existing host public key only, no private key copied. Guest agent enables trusted host key retrieval on new guests.
+    script='set -eu; umask 077; test ! -e '+q(disk)+'; test ! -e '+q(seed)+'; test "$(sha256sum '+q(image)+' | cut -d\' \' -f1)" = '+q(digest.lower())+'; '+vir('dominfo '+q(name))+' >/dev/null 2>&1 && exit 1; '
+    script+='d=$(mktemp -d /var/lib/libvirt/images/.cpu-validation.XXXXXX); trap \'rm -rf "$d"\' EXIT; qemu-img convert -f qcow2 -O qcow2 '+q(image)+' "$d/disk"; qemu-img resize "$d/disk" 20G; '
+    script+='printf "%s\\n" "#cloud-config" "users:" "  - name: tester" "    lock_passwd: true" "    sudo: ALL=(ALL) NOPASSWD:ALL" "    shell: /bin/bash" "    ssh_authorized_keys:" > "$d/user-data"; printf "      - %s\\n" "$(cat '+q(pub)+')" >> "$d/user-data"; printf "%s\\n" "ssh_pwauth: false" "packages: [qemu-guest-agent, stress-ng]" "runcmd:" "  - [systemctl, start, qemu-guest-agent]" >> "$d/user-data"; '
+    script+='printf "%s\\n" "instance-id: '+name+'-'+uuid.uuid4().hex+'" "local-hostname: '+name+'" > "$d/meta-data"; cloud-localds "$d/seed" "$d/user-data" "$d/meta-data"; ln "$d/disk" '+q(disk)+'; ln "$d/seed" '+q(seed)+'; chmod 0644 '+q(disk)+' '+q(seed)+'; '
+    script+='virt-install --connect qemu:///system --name '+q(name)+' --memory 4096 --vcpus 4 --cpu host-passthrough --disk path='+q(disk)+',format=qcow2,bus=virtio --disk path='+q(seed)+',device=cdrom --network network=default,model=virtio --osinfo ubuntu24.04 --import --graphics none --noautoconsole --channel unix,target.type=virtio,target.name=org.qemu.guest_agent.0 --print-xml > "$d/domain.xml"; '
+    # Edit generated XML before definition, not a running domain.
+    py='import xml.etree.ElementTree as E,sys; p=sys.argv[1]; t=E.parse(p); r=t.getroot(); c=r.find("cputune"); c=c if c is not None else E.SubElement(r,"cputune"); [E.SubElement(c,"vcpupin",vcpu=str(i),cpuset=str(i)) for i in range(4)]; E.SubElement(c,"emulatorpin",cpuset="0-3"); t.write(p,encoding="unicode")'
+    script+='python3 -c '+q(py)+' "$d/domain.xml"; '+vir('define "$d/domain.xml"')
+    return run('create_vm',script,root=True,change=True,timeout=560)
+
+def main():
+    global CFG,P,V,SSH,ROOT_OK,GUEST
+    CFG=yaml.safe_load((BASE/'config.yaml').read_text()); policy=yaml.safe_load((BASE/'provision_policy.yaml').read_text()); P=policy['provision']; V=policy['virtualization']; name=V['name']
+    host=str(CFG['host']); user=str(CFG['ssh_user']); port=int(CFG.get('ssh_port',22)); key=Path((CFG.get('auth') or {}).get('ssh_key') or CFG.get('ssh_key') or '~/.ssh/id_ed25519').expanduser()
+    if not re.fullmatch(r'[a-zA-Z0-9_.:-]+',host) or not re.fullmatch(r'[a-z_][a-z0-9_-]*',user) or not re.fullmatch(r'[a-zA-Z0-9_-]+',name) or V['guest_user']!='tester' or not key.is_file(): raise RuntimeError('Invalid host/user/VM/key configuration')
+    SSH=['ssh','-T','-i',str(key),'-p',str(port),'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=10','-o','ConnectionAttempts=1','-o','ServerAliveInterval=5','-o','ServerAliveCountMax=2',user+'@'+host]
+    r,o,_=run('identity','hostname && whoami && uname -r'); lines=o.splitlines()
+    if r!=0 or len(lines)!=3 or lines[1]!=user: raise RuntimeError('Host identity failed')
+    ENV.update(host=host,hostname=lines[0],ssh_user=user,kernel=lines[2],vm=name)
+    if not SECRET or '\n' in SECRET or '\r' in SECRET: raise RuntimeError('SUT_SUDO_PASSWORD unavailable')
+    ROOT_OK=True; r,o,_=run('sudo','id -u',root=True); ROOT_OK=r==0 and o=='0'
+    if not ROOT_OK: raise RuntimeError('Host sudo authentication failed')
+    ok,o=check('TP01','Ubuntu host','cat /etc/os-release',lambda r,o:r==0 and bool(re.search(r'^ID=ubuntu$',o,re.M)))
+    if not ok: raise RuntimeError('Only Ubuntu host supported by this version')
+    check('TP02','CPU topology','LC_ALL=C lscpu',lambda r,o:r==0 and bool(o)); check('TP03','Kernel version','uname -r',lambda r,o:r==0 and bool(o))
+    for cid,tool,pkg,cmd in [('TP04','cyclictest','rt-tests','cyclictest --help >/dev/null 2>&1'),('TP05','stress-ng','stress-ng','stress-ng --version'),('TP06','taskset','util-linux','taskset --version'),('TP07','chrt','util-linux','chrt --version'),('TP08','numactl','numactl','numactl --show')]:
+        check(cid,tool,'command -v '+tool+' && '+cmd,repair=lambda pkg=pkg:install(pkg),allowed=allowed('auto_install_tools'))
+    def limits():
+        path='/etc/security/limits.d/99-cpu-validation-'+user+'.conf'; content=f'{user} soft rtprio 80\n{user} hard rtprio 80\n{user} soft memlock unlimited\n{user} hard memlock unlimited\n'; q=shlex.quote
+        return run('fix_limits','set -eu; p='+q(path)+'; if test -e "$p"; then cp -a -- "$p" "$p.bak.'+RUN_ID+'"; fi; printf %s '+q(content)+' | install -m 0644 /dev/stdin "$p"',root=True,change=True)
+    check('TP09','FIFO 80','chrt -f 80 true',repair=limits,allowed=allowed('auto_fix_permissions'))
+    check('TP10','Unlimited memlock','ulimit -l',lambda r,o:r==0 and o=='unlimited',repair=limits,allowed=allowed('auto_fix_permissions'))
+    def dma():
+        # Dedicated group; do not change global device access for all users.
+        q=shlex.quote; rule='KERNEL=="cpu_dma_latency", GROUP="cpu-validation", MODE="0660"\n'; path='/etc/udev/rules.d/99-cpu-validation-dma.rules'
+        return run('fix_dma','set -eu; test -c /dev/cpu_dma_latency; getent group cpu-validation >/dev/null || groupadd --system cpu-validation; usermod -aG cpu-validation '+q(user)+'; p='+q(path)+'; if test -e "$p"; then cp -a "$p" "$p.bak.'+RUN_ID+'"; fi; printf %s '+q(rule)+' | install -m 0644 /dev/stdin "$p"; udevadm control --reload-rules; chgrp cpu-validation /dev/cpu_dma_latency; chmod 0660 /dev/cpu_dma_latency',root=True,change=True)
+    check('TP11','DMA device write permission','test -c /dev/cpu_dma_latency && test -w /dev/cpu_dma_latency',repair=dma,allowed=allowed('auto_fix_dma'))
+    check('TP12','Isolation capture','cat /proc/cmdline && cat /sys/devices/system/cpu/{isolated,nohz_full,online}'.replace('{isolated,nohz_full,online}','isolated /sys/devices/system/cpu/nohz_full /sys/devices/system/cpu/online'),lambda r,o:r==0 and bool(o))
+    check('TP13','Intel VT-x','grep -qw vmx /proc/cpuinfo'); check('TP14','KVM modules','test -d /sys/module/kvm && test -d /sys/module/kvm_intel',repair=lambda:run('load_kvm','modprobe kvm_intel',root=True,change=True),allowed=allowed('auto_load_modules'))
+    check('TP15','KVM device','test -c /dev/kvm'); check('TP16','QEMU','qemu-system-x86_64 --version',repair=lambda:install('qemu-system-x86'),allowed=allowed('auto_install_kvm'))
+    check('TP17','libvirt tools','virsh --version',repair=lambda:install('libvirt-daemon-system libvirt-clients'),allowed=allowed('auto_install_kvm'))
+    ok,_=check('TP18','libvirt system connection',vir('list --all'),root=True,repair=lambda:run('start_libvirt','systemctl start libvirtd',root=True,change=True),allowed=allowed('auto_start_libvirt'))
+    if not ok: raise RuntimeError('libvirt not available')
+    if any(c['status']!='PASS' for c in CASES): raise RuntimeError('Host readiness failed; guest changes blocked')
+    check('TP18A','Host realtime kernel','cat /sys/kernel/realtime',lambda r,o:r==0 and o=='1')
+    ok,_=check('TP18B','Host isolated CPUs','cat /sys/devices/system/cpu/isolated',lambda r,o:r==0 and cpus(o)==set(range(4,8)))
+    ok2,_=check('TP18C','Host online CPUs','cat /sys/devices/system/cpu/online',lambda r,o:r==0 and set(range(8))<=cpus(o))
+    if not ok or not ok2 or any(c['status']!='PASS' for c in CASES): raise RuntimeError('Host RT/CPU baseline mismatch; no GRUB or kernel changes')
+    ok,_=check('TP18D','Default libvirt network',vir('net-info default'),lambda r,o:r==0 and bool(re.search(r'^Active:\s+yes',o,re.M)),root=True,repair=lambda:run('start_network',vir('net-start default'),root=True,change=True),allowed=allowed('auto_start_network'))
+    if not ok: raise RuntimeError('Default network unavailable; do not create or overwrite network automatically')
+    r,o,_=run('domain_list',vir('list --all --name'),root=True)
+    if r!=0: raise RuntimeError('Cannot enumerate domains')
+    exists=name in o.splitlines(); created=False
+    if not exists:
+        if not allowed('auto_create_vm'): raise RuntimeError('VM absent; creation not authorized')
+        if create_vm()[0]!=0: raise RuntimeError('VM creation failed; inspect partial files before retry')
+        created=True
+    ok,_=check('TP19','Target VM',vir('dominfo '+name),root=True)
+    if not ok: raise RuntimeError('VM unavailable')
+    ok,xml=check('TP21','Persistent VM CPU/memory/network baseline',vir('dumpxml --inactive '+name),lambda r,o:r==0 and vm_xml_ok(o),root=True)
+    if not ok: raise RuntimeError('Existing VM configuration differs; not modified')
+    ok,_=check('TP20','VM running',vir('domstate '+name),lambda r,o:r==0 and o=='running',root=True,repair=lambda:run('start_vm',vir('start '+name),root=True,change=True),allowed=allowed('auto_start_vm'))
+    if not ok: raise RuntimeError('VM not running')
+    ok,_=check('TP22','Live VM pinning and emulator affinity',vir('dumpxml '+name),lambda r,o:r==0 and vm_xml_ok(o),root=True)
+    if not ok: raise RuntimeError('Live VM config mismatch')
+    deadline=time.monotonic()+180
+    while time.monotonic()<deadline:
+        r,o,_=run('guest_ip',vir('domifaddr '+name+' --source lease'),root=True)
+        if r==0:
+            for line in o.splitlines():
+                parts=line.split()
+                if len(parts)>=4 and parts[2]=='ipv4':
+                    try: GUEST=str(ipaddress.IPv4Interface(parts[3]).ip); break
+                    except ValueError: pass
+        if GUEST: break
+        time.sleep(5)
+    case('TP23','Guest DHCP address','PASS' if GUEST else 'FAIL',GUEST or 'No IPv4 lease'); ENV['guest_ip']=GUEST
+    if not GUEST: raise RuntimeError('Guest address unavailable')
+    # No TOFU automation: existing or new guest needs a trusted known_hosts entry on SUT.
+    if created: log('New guest: SSH trust bootstrap must be established via trusted console/guest agent before reuse; never auto-accept an unknown key')
+    deadline=time.monotonic()+90; ok=False
+    while time.monotonic()<deadline:
+        r,o,_=run('guest_identity','hostname && whoami && nproc && systemd-detect-virt',guest=True)
+        if r==0 and o.splitlines()==[name,'tester','4','kvm']: ok=True; break
+        # Authentication/host key errors are not boot delays; stop rather than repeat.
+        err=(E/(RECORDS[-1]['label']+'.stderr')).read_text()
+        if 'Host key verification failed' in err or 'Permission denied' in err: break
+        time.sleep(5)
+    case('TP24','Guest SSH identity','PASS' if ok else 'FAIL','Verified nested SSH' if ok else 'Guest SSH trust/authentication or identity mismatch')
+    if not ok: raise RuntimeError('Guest identity not confirmed')
+    ok,_=check('TP25','Guest Ubuntu 24.04','cat /etc/os-release',lambda r,o:r==0 and 'VERSION_ID="24.04"' in o,guest=True)
+    ok2,_=check('TP26','Guest sudo','sudo -n id -u',lambda r,o:r==0 and o=='0',guest=True)
+    if not ok or not ok2: raise RuntimeError('Guest OS or sudo mismatch')
+    check('TP27','Guest stress-ng','command -v stress-ng && stress-ng --version',guest=True,repair=lambda:install('stress-ng',guest=True),allowed=allowed('auto_install_tools'))
+    check('TP28','Guest stress-ng short smoke test','stress-ng --cpu 1 --timeout 2s --metrics-brief',guest=True)
+    ENV['vm_created']=created
+
+log('START CPU-02 provisioning')
+error=''
+try: main()
+except Exception as exc: error=safe(str(exc)); log('ERROR '+error)
+finally:
+    if error: case('GATE','Provisioning completion','FAIL',error)
+    for f in ['changes.jsonl','execution.jsonl']: (RUN/f).touch(exist_ok=True)
+    overall='PASS' if CASES and not error and all(c['status']=='PASS' for c in CASES) else 'FAIL'
+    dump('environment.json',ENV); dump('result.json',dict(run_id=RUN_ID,stage='provision-all',overall=overall,changes=len(CHANGES),cases=CASES)); dump('test_cases.json',[{'id':c['id'],'name':c['name']} for c in CASES])
+    with (RUN/'result.csv').open('w',newline='') as f:
+        w=csv.DictWriter(f,fieldnames=['id','name','status','reason','initial','action']); w.writeheader(); w.writerows(scrub(CASES))
+    (RUN/'report.md').write_text(safe('# CPU-02 环境初始化报告\n\nRun: '+RUN_ID+'\n\nOverall: '+overall+'\n\n变更操作数（含尝试）: '+str(len(CHANGES))+'\n\n| 编号 | 检查项目 | 初始 | 操作 | 结果 | 说明 |\n|---|---|---|---|---|---|\n'+'\n'.join('| '+' | '.join(str(c[k]).replace('|','/').replace('\n',' ') for k in ['id','name','initial','action','status','reason'])+' |' for c in CASES)+'\n'))
+    log('FINISH '+overall+'; evidence directory: '+str(RUN))
+    with (RUN/'SHA256SUMS').open('w') as f:
+        for p in sorted(RUN.rglob('*')):
+            if p.is_file() and p.name!='SHA256SUMS': f.write(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+str(p.relative_to(RUN))+'\n')
+    sys.exit(0 if overall=='PASS' else 1)

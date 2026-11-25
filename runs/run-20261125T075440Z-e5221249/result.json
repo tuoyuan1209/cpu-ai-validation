@@ -1,0 +1,111 @@
+{
+  "run_id": "run-20261125T075440Z-e5221249",
+  "stage": "CPU-03",
+  "overall": "WARN",
+  "cases": [
+    {
+      "id": "ISO01",
+      "name": "实时内核",
+      "status": "PASS",
+      "expected": "1",
+      "actual": "1",
+      "reason": "expected=1; actual=1"
+    },
+    {
+      "id": "ISO02",
+      "name": "在线CPU",
+      "status": "PASS",
+      "expected": "0-7",
+      "actual": "0-7",
+      "reason": "expected=0-7; actual=0-7"
+    },
+    {
+      "id": "ISO03",
+      "name": "isolcpus启动参数（domain）",
+      "status": "PASS",
+      "expected": "4-7",
+      "actual": "4-7",
+      "reason": "expected=4-7; actual=4-7"
+    },
+    {
+      "id": "ISO04",
+      "name": "实际隔离CPU",
+      "status": "PASS",
+      "expected": "4-7",
+      "actual": "4-7",
+      "reason": "expected=4-7; actual=4-7"
+    },
+    {
+      "id": "ISO05",
+      "name": "NOHZ_FULL",
+      "status": "PASS",
+      "expected": "4-7",
+      "actual": "4-7",
+      "reason": "expected=4-7; actual=4-7"
+    },
+    {
+      "id": "ISO06",
+      "name": "RCU卸载启动配置",
+      "status": "PASS",
+      "expected": "4-7",
+      "actual": "4-7",
+      "reason": "expected=4-7; actual=4-7"
+    },
+    {
+      "id": "ISO07",
+      "name": "默认IRQ亲和性（运行时）",
+      "status": "PASS",
+      "expected": "f",
+      "actual": "0f",
+      "reason": "expected=f; actual=0f"
+    },
+    {
+      "id": "ISO08",
+      "name": "内核线程启动参数",
+      "status": "PASS",
+      "expected": "0",
+      "actual": "0",
+      "reason": "expected=0; actual=0"
+    },
+    {
+      "id": "ISO09",
+      "name": "全局workqueue亲和性",
+      "status": "PASS",
+      "expected": "不覆盖隔离CPU",
+      "actual": "掩码=0f; 交集=[]",
+      "reason": "expected=不覆盖隔离CPU; actual=掩码=0f; 交集=[]"
+    },
+    {
+      "id": "ISO10",
+      "name": "实际IRQ亲和性",
+      "status": "WARN",
+      "expected": "无IRQ有效亲和性覆盖隔离CPU",
+      "actual": "采集66项; 涉及隔离CPU的IRQ: 153, 154, 155, 156, 174, 175, 176, 177",
+      "reason": "expected=无IRQ有效亲和性覆盖隔离CPU; actual=采集66项; 涉及隔离CPU的IRQ: 153, 154, 155, 156, 174, 175, 176, 177"
+    },
+    {
+      "id": "ISO11",
+      "name": "实时测试核心",
+      "status": "PASS",
+      "expected": "CPU 6 在线且隔离",
+      "actual": "在线=0-7; 隔离=4-7",
+      "reason": "expected=CPU 6 在线且隔离; actual=在线=0-7; 隔离=4-7"
+    },
+    {
+      "id": "ISO12",
+      "name": "KVM vCPU绑定",
+      "status": "PASS",
+      "expected": "{0: {0}, 1: {1}, 2: {2}, 3: {3}}",
+      "actual": "持久+运行配置: [{0: {0}, 1: {1}, 2: {2}, 3: {3}}, {0: {0}, 1: {1}, 2: {2}, 3: {3}}]",
+      "reason": "expected={0: {0}, 1: {1}, 2: {2}, 3: {3}}; actual=持久+运行配置: [{0: {0}, 1: {1}, 2: {2}, 3: {3}}, {0: {0}, 1: {1}, 2: {2}, 3: {3}}]"
+    },
+    {
+      "id": "ISO13",
+      "name": "KVM模拟器绑定",
+      "status": "PASS",
+      "expected": "0-3",
+      "actual": "持久+运行配置: [{0, 1, 2, 3}, {0, 1, 2, 3}]",
+      "reason": "expected=0-3; actual=持久+运行配置: [{0, 1, 2, 3}, {0, 1, 2, 3}]"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+id,name,status,reason,initial,action
+TP01,Ubuntu host,PASS,Verified,PASS,SKIP
+TP02,CPU topology,PASS,Verified,PASS,SKIP
+TP03,Kernel version,PASS,Verified,PASS,SKIP
+TP04,cyclic[REDACTED],PASS,Verified,PASS,SKIP
+TP05,stress-ng,PASS,Verified,PASS,SKIP
+TP06,taskset,PASS,Verified,PASS,SKIP
+TP07,chrt,PASS,Verified,PASS,SKIP
+TP08,numactl,PASS,Verified,PASS,SKIP
+TP09,FIFO 80,PASS,Verified,PASS,SKIP
+TP10,Unlimited memlock,PASS,Verified,PASS,SKIP
+TP11,DMA device write permission,PASS,Verified,PASS,SKIP
+TP12,Isolation capture,PASS,Verified,PASS,SKIP
+TP13,Intel VT-x,PASS,Verified,PASS,SKIP
+TP14,KVM modules,PASS,Verified,PASS,SKIP
+TP15,KVM device,PASS,Verified,PASS,SKIP
+TP16,QEMU,PASS,Verified,PASS,SKIP
+TP17,libvirt tools,PASS,Verified,PASS,SKIP
+TP18,libvirt system connection,PASS,Verified,PASS,SKIP
+TP18A,Host realtime kernel,PASS,Verified,PASS,SKIP
+TP18B,Host isolated CPUs,PASS,Verified,PASS,SKIP
+TP18C,Host online CPUs,PASS,Verified,PASS,SKIP
+TP18D,Default libvirt network,PASS,Verified,PASS,SKIP
+TP19,Target VM,PASS,Verified,PASS,SKIP
+TP21,Persistent VM CPU/memory/network baseline,PASS,Verified,PASS,SKIP
+TP20,VM running,PASS,Verified,PASS,SKIP
+TP22,Live VM pinning and emulator affinity,PASS,Verified,PASS,SKIP
+TP23,Guest DHCP address,PASS,192.168.122.44,,
+TP24,Guest SSH identity,PASS,Verified nested SSH,,
+TP25,Guest Ubuntu 24.04,PASS,Verified,PASS,SKIP
+TP26,Guest sudo,PASS,Verified,PASS,SKIP
+TP27,Guest stress-ng,PASS,Verified,PASS,SKIP
+TP28,Guest stress-ng short smoke [REDACTED],PASS,Verified,PASS,SKIP

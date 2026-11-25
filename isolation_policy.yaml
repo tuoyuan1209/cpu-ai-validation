@@ -1,0 +1,13 @@
+online_cpus: '0-7'
+housekeeping_cpus: '0-3'
+isolated_cpus: '4-7'
+kthread_cpus: '0'
+test_cpu: 6
+vm:
+  name: cpu-isolation-vm
+  vcpu_pinning:
+    0: '0'
+    1: '1'
+    2: '2'
+    3: '3'
+  emulator_cpus: '0-3'

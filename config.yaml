@@ -1,0 +1,32 @@
+host: "192.168.41.10"
+ssh_user: "test"
+ssh_port: 22
+
+auth:
+  method: "auto"
+  ssh_key: "/root/.ssh/id_ed25519"
+  ssh_password_secret: "SUT_SSH_PASSWORD"
+  sudo_password_secret: "SUT_SUDO_PASSWORD"
+
+provision:
+  enabled: true
+  install_tools: true
+  configure_rt_permissions: true
+  configure_device_permissions: true
+  modify_kernel_parameters: false
+  allow_reboot: false
+
+mode: "precheck"
+
+cpu_count: 8
+isolated_cpu: 6
+period_us: 1000
+rt_priority: 80
+duration_s: 60
+long_duration_s: 3600
+
+ssh_timeout_s: 10
+test_timeout_s: 90
+
+acceptance:
+  max_latency_us: null

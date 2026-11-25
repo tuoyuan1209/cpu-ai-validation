@@ -1,0 +1,74 @@
+[
+  {
+    "id": "TP01",
+    "name": "OS release",
+    "command": "cat /etc/os-release",
+    "rule": "output"
+  },
+  {
+    "id": "TP02",
+    "name": "CPU topology",
+    "command": "LC_ALL=C lscpu",
+    "rule": "output"
+  },
+  {
+    "id": "TP03",
+    "name": "Kernel version",
+    "command": "uname -r",
+    "rule": "output"
+  },
+  {
+    "id": "TP04",
+    "name": "cyclictest",
+    "command": "command -v cyclictest && cyclictest --help >/dev/null 2>&1",
+    "rule": "exit"
+  },
+  {
+    "id": "TP05",
+    "name": "stress-ng",
+    "command": "command -v stress-ng && stress-ng --version",
+    "rule": "exit"
+  },
+  {
+    "id": "TP06",
+    "name": "taskset",
+    "command": "taskset --version",
+    "rule": "exit"
+  },
+  {
+    "id": "TP07",
+    "name": "chrt",
+    "command": "chrt --version",
+    "rule": "exit"
+  },
+  {
+    "id": "TP08",
+    "name": "numactl",
+    "command": "numactl --show",
+    "rule": "exit"
+  },
+  {
+    "id": "TP09",
+    "name": "FIFO priority 80 as SSH user",
+    "command": "chrt -f 80 true",
+    "rule": "exit"
+  },
+  {
+    "id": "TP10",
+    "name": "memlock soft limit",
+    "command": "ulimit -l",
+    "rule": "memlock"
+  },
+  {
+    "id": "TP11",
+    "name": "DMA latency device access as SSH user",
+    "command": "test -c /dev/cpu_dma_latency && test -w /dev/cpu_dma_latency && printf \"writable\\n\"",
+    "rule": "exit"
+  },
+  {
+    "id": "TP12",
+    "name": "Isolation configuration capture",
+    "command": "cat /proc/cmdline && for f in isolated nohz_full online; do printf \"%s: \" \"$f\"; if test -r /sys/devices/system/cpu/$f; then cat /sys/devices/system/cpu/$f || exit 1; else printf \"unavailable\\n\"; fi; done",
+    "rule": "output"
+  }
+]

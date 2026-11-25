@@ -1,0 +1,7 @@
+﻿id,name,status,expected,actual,reason
+SCH01,实际调度采样,INCONCLUSIVE,1 workers; 3s,incomplete sample or insufficient affinity coverage,expected=1 workers; 3s; actual=incomplete sample or insufficient affinity coverage
+SCH02,实际调度采样,INCONCLUSIVE,8 workers; 5s,incomplete sample or insufficient affinity coverage,expected=8 workers; 5s; actual=incomplete sample or insufficient affinity coverage
+SCH03,实际调度采样,INCONCLUSIVE,8 workers; 10s,incomplete sample or insufficient affinity coverage,expected=8 workers; 10s; actual=incomplete sample or insufficient affinity coverage
+SCH04,隔离核心侵入统计,INCONCLUSIVE,0次采样,0次；有效阶段=0/3,expected=0次采样; actual=0次；有效阶段=0/3
+SCH05,显式绑定对照,PASS,CPU [6]; 1 workers; 3s,counts={6: 299}; allowed=[[6]]; cpu_seconds=0.00,expected=CPU [6]; 1 workers; 3s; actual=counts={6: 299}; allowed=[[6]]; cpu_seconds=0.00
+SCH06,KVM负载下普通任务调度,INCONCLUSIVE,有效并发负载证据,guest workload or host sampling failed; inspect stdout/stderr,expected=有效并发负载证据; actual=guest workload or host sampling failed; inspect stdout/stderr

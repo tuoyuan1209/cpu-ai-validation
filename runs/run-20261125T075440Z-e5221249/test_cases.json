@@ -1,0 +1,67 @@
+[
+  {
+    "id": "ISO01",
+    "name": "实时内核",
+    "expected": "1"
+  },
+  {
+    "id": "ISO02",
+    "name": "在线CPU",
+    "expected": "0-7"
+  },
+  {
+    "id": "ISO03",
+    "name": "isolcpus启动参数（domain）",
+    "expected": "4-7"
+  },
+  {
+    "id": "ISO04",
+    "name": "实际隔离CPU",
+    "expected": "4-7"
+  },
+  {
+    "id": "ISO05",
+    "name": "NOHZ_FULL",
+    "expected": "4-7"
+  },
+  {
+    "id": "ISO06",
+    "name": "RCU卸载启动配置",
+    "expected": "4-7"
+  },
+  {
+    "id": "ISO07",
+    "name": "默认IRQ亲和性（运行时）",
+    "expected": "f"
+  },
+  {
+    "id": "ISO08",
+    "name": "内核线程启动参数",
+    "expected": "0"
+  },
+  {
+    "id": "ISO09",
+    "name": "全局workqueue亲和性",
+    "expected": "不覆盖隔离CPU"
+  },
+  {
+    "id": "ISO10",
+    "name": "实际IRQ亲和性",
+    "expected": "无IRQ有效亲和性覆盖隔离CPU"
+  },
+  {
+    "id": "ISO11",
+    "name": "实时测试核心",
+    "expected": "CPU 6 在线且隔离"
+  },
+  {
+    "id": "ISO12",
+    "name": "KVM vCPU绑定",
+    "expected": "{0: {0}, 1: {1}, 2: {2}, 3: {3}}"
+  },
+  {
+    "id": "ISO13",
+    "name": "KVM模拟器绑定",
+    "expected": "0-3"
+  }
+]

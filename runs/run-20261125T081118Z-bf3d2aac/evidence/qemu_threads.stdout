@@ -1,0 +1,45 @@
+TID 12659
+Name:	worker
+Cpus_allowed_list:	0-3
+TID 12660
+Name:	worker
+Cpus_allowed_list:	0-3
+TID 12661
+Name:	worker
+Cpus_allowed_list:	0-3
+TID 12662
+Name:	worker
+Cpus_allowed_list:	0-3
+TID 12663
+Name:	worker
+Cpus_allowed_list:	0-3
+TID 12664
+Name:	worker
+Cpus_allowed_list:	0-3
+TID 7581
+Name:	qemu-system-x86
+Cpus_allowed_list:	0-3
+TID 7595
+Name:	qemu-system-x86
+Cpus_allowed_list:	0-3
+TID 7597
+Name:	vhost-7581
+Cpus_allowed_list:	0-3
+TID 7598
+Name:	IO mon_iothread
+Cpus_allowed_list:	0-3
+TID 7599
+Name:	CPU 0/KVM
+Cpus_allowed_list:	0
+TID 7600
+Name:	CPU 1/KVM
+Cpus_allowed_list:	1
+TID 7601
+Name:	CPU 2/KVM
+Cpus_allowed_list:	2
+TID 7602
+Name:	CPU 3/KVM
+Cpus_allowed_list:	3
+TID 7606
+Name:	kvm-nx-lpage-re
+Cpus_allowed_list:	0
