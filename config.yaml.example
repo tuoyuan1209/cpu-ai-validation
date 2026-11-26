@@ -1,0 +1,8 @@
+# Keep your real config.yaml on the controller; do not commit secrets.
+host: '192.0.2.10'  # documentation-only example; replace with SUT IP
+ssh_user: test
+ssh_port: 22
+auth:
+  method: key
+  ssh_key: '/root/.ssh/id_ed25519'
+  sudo_password_secret: SUT_SUDO_PASSWORD

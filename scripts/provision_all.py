@@ -5,6 +5,8 @@ from pathlib import Path
 import yaml
 
 BASE=Path(__file__).resolve().parent.parent
+if '--explicit-legacy-deploy' not in sys.argv or yaml.safe_load((BASE/'provision_policy.yaml').read_text()).get('validation_mode')!='deploy':
+    raise SystemExit('Blocked: legacy deployment requires explicit flag and validation_mode: deploy; vendor validation uses check_vendor_preflight.py')
 os.umask(0o077)
 RUN_ID=dt.datetime.now(dt.timezone.utc).strftime('run-%Y%m%dT%H%M%SZ-')+uuid.uuid4().hex[:8]
 RUN=BASE/'runs'/RUN_ID
@@ -173,6 +175,107 @@ def create_vm():
     script+='python3 -c '+q(py)+' "$d/domain.xml"; '+vir('define "$d/domain.xml"')
     return run('create_vm',script,root=True,change=True,timeout=560)
 
+# Remote IRQ inventory and guarded single-IRQ migration. Numeric IRQs only.
+IRQ_REMOTE = r'''import json, pathlib, re, sys, time
+P=pathlib.Path('/proc/irq')
+def parse(s):
+    if not s: return set()
+    out=set()
+    for x in s.split(','):
+        if not re.fullmatch(r'\d+(?:-\d+)?',x): raise ValueError('invalid CPU list '+x)
+        a,b=(x.split('-')+[x])[:2]
+        a,b=int(a),int(b)
+        if b<a or b>65535: raise ValueError('invalid CPU range')
+        out.update(range(a,b+1))
+    return out
+def read(p): return p.read_text().strip()
+def inventory():
+    lines=pathlib.Path('/proc/interrupts').read_text().splitlines()
+    if not lines or not re.fullmatch(r'\s*CPU\d+(?:\s+CPU\d+)*\s*',lines[0]): raise RuntimeError('interrupt header missing')
+    n=len(lines[0].split()); active={}
+    for line in lines[1:]:
+        m=re.match(r'\s*(\d+):\s*(.*)',line)
+        if m:
+            a=m[2].split(None,n)
+            if len(a)<n+1 or not all(x.isdigit() for x in a[:n]): raise RuntimeError('malformed numeric IRQ row')
+            active[m[1]]=a[n]
+    rows={}
+    for irq in sorted(set(active)|{x.name for x in P.iterdir() if x.name.isdigit() and (x/'effective_affinity_list').exists()},key=int):
+        row={'description':active.get(irq),'configured':None,'effective':None,'error':None}
+        try:
+            row['configured']=read(P/irq/'smp_affinity_list'); row['effective']=read(P/irq/'effective_affinity_list')
+            parse(row['configured']); parse(row['effective'])
+        except (OSError,ValueError) as e: row['error']=str(e)
+        rows[irq]=row
+    return {'online':read(pathlib.Path('/sys/devices/system/cpu/online')),'isolated':read(pathlib.Path('/sys/devices/system/cpu/isolated')),'rows':rows}
+mode=sys.argv[1]
+if mode=='scan': print(json.dumps(inventory())); sys.exit(0)
+irq,expected,target,house,iso=sys.argv[2:7]; expected=json.loads(expected)
+if not irq.isdigit(): raise RuntimeError('invalid IRQ')
+state=inventory(); row=state['rows'].get(irq)
+if parse(state['isolated'])!=parse(iso) or parse(state['online'])!=parse(house)|parse(iso): raise RuntimeError('CPU topology changed')
+if row!=expected or row is None or row['error'] or not row['description']: raise RuntimeError('IRQ identity or affinity changed; rescan required')
+if not parse(target) or not parse(target)<=parse(house) or not parse(row['effective'])&parse(iso) and not parse(row['configured'])&parse(iso): raise RuntimeError('unsafe or unnecessary migration')
+p=P/irq/'smp_affinity_list'; print(json.dumps({'before':row,'target':target}),flush=True)
+# No forced migration or global configuration changes. Kernel may refuse managed IRQs.
+try:
+    p.write_text(target+'\n')
+except PermissionError as exc:
+    print(json.dumps({'outcome':'kernel_rejected','errno':exc.errno,'message':str(exc)}),flush=True)
+    sys.exit(13)
+for _ in range(10):
+    configured=read(p); effective=read(P/irq/'effective_affinity_list')
+    if parse(configured) and parse(configured)<=parse(house) and parse(effective) and parse(effective)<=parse(house):
+        print(json.dumps({'configured':configured,'effective':effective}),flush=True); sys.exit(0)
+    time.sleep(.2)
+raise RuntimeError('affinity verification failed; inspect actual state before retry')
+'''
+
+def provision_irq():
+    policy=yaml.safe_load((BASE/'isolation_policy.yaml').read_text())
+    house=cpus(str(policy['housekeeping_cpus'])); iso=cpus(str(policy['isolated_cpus'])); online=cpus(str(policy['online_cpus']))
+    if not house or not iso or house&iso or house|iso!=online: raise RuntimeError('Invalid IRQ CPU policy')
+    def cmd(*args): return ' '.join(shlex.quote(x) for x in ['python3','-c',IRQ_REMOTE,*args])
+    def scan(label):
+        r,o,t=run(label,cmd('scan'),root=True,timeout=45)
+        if r!=0 or t: raise RuntimeError('IRQ inventory failed; inspect evidence')
+        data=json.loads(o)
+        if cpus(data['online'])!=online or cpus(data['isolated'])!=iso or not data['rows']: raise RuntimeError('IRQ inventory topology mismatch or empty inventory')
+        return data
+    def classify(data):
+        hits={}; unknown={}; inactive={}
+        for irq,row in data['rows'].items():
+            if row['error'] or not row['effective'] or not row['configured']:
+                (inactive if not row['description'] and not row['error'] and not row['effective'] else unknown)[irq]=row
+            elif (cpus(row['effective'])|cpus(row['configured']))&iso:
+                (hits if row['description'] else unknown)[irq]=row
+        return hits,unknown,inactive
+    before=scan('irq_inventory_before'); dump('irq_before.json',before)
+    hits,unknown,inactive=classify(before); attempts=[]
+    # Use the existing configured/effective CPU where possible; otherwise distribute by IRQ order.
+    if allowed('auto_fix_irq_affinity'):
+        for index,(irq,row) in enumerate(hits.items()):
+            target=cpus(row['configured'])&house
+            if not target: target={sorted(house)[index%len(house)]}
+            target_str=','.join(map(str,sorted(target)))
+            r,out,t=run('irq_migrate_'+irq,cmd('move',irq,json.dumps(row),target_str,','.join(map(str,sorted(house))),','.join(map(str,sorted(iso)))),root=True,change=True,timeout=40)
+            try: outcome=json.loads(out.splitlines()[-1]) if out else {}
+            except (ValueError,IndexError): outcome={}
+            attempts.append({'irq':irq,'before':row,'target':target_str,'exit_code':r,'timeout':t,'outcome': 'verified' if r==0 else 'kernel_rejected' if r==13 and outcome.get('outcome')=='kernel_rejected' else 'failed','detail':outcome}); dump('irq_migrations.json',attempts)
+            if t or r in (None,255): break
+    dump('irq_migrations.json',attempts)
+    after=scan('irq_inventory_after'); dump('irq_after.json',after)
+    remaining,unknown_after,inactive_after=classify(after)
+    rejected={a['irq']:a for a in attempts if a['outcome']=='kernel_rejected'}
+    nvme={irq:row for irq,row in after['rows'].items() if re.search(r'\bnvme\d+q\d+\b',row.get('description') or '')}
+    dump('irq_nvme.json',nvme)
+    dump('irq_kernel_rejected.json',rejected)
+    dump('irq_summary.json',{'kernel_rejected':rejected,'nvme_remaining':{k:v for k,v in remaining.items() if k in nvme},'initial_hits':hits,'remaining_hits':remaining,'unknown':unknown_after,'inactive_empty':inactive_after,'authorized':allowed('auto_fix_irq_affinity'),'attempts':attempts})
+    failed=any(a['exit_code']!=0 or a['timeout'] for a in attempts)
+    status='FAIL' if remaining or failed else 'INCONCLUSIVE' if unknown_after else 'PASS'
+    case('TP29','设备IRQ亲和性配置及复验',status,f'初始异常={len(hits)}; 剩余异常={len(remaining)}; 未知={len(unknown_after)}; 非活动空字段={len(inactive_after)}; 迁移尝试={len(attempts)}', 'FAIL' if hits else 'INCONCLUSIVE' if unknown else 'PASS','REPAIR' if attempts else 'SKIP')
+
+
 def main():
     global CFG,P,V,SSH,ROOT_OK,GUEST
     CFG=yaml.safe_load((BASE/'config.yaml').read_text()); policy=yaml.safe_load((BASE/'provision_policy.yaml').read_text()); P=policy['provision']; V=policy['virtualization']; name=V['name']
@@ -259,8 +362,10 @@ def main():
     check('TP27','Guest stress-ng','command -v stress-ng && stress-ng --version',guest=True,repair=lambda:install('stress-ng',guest=True),allowed=allowed('auto_install_tools'))
     check('TP28','Guest stress-ng short smoke test','stress-ng --cpu 1 --timeout 2s --metrics-brief',guest=True)
     ENV['vm_created']=created
+    provision_irq()
 
-log('START CPU-02 provisioning')
+ENV['script_version']='4.0-irq-classification'; ENV['script_sha256']=hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+log('START CPU-02 provisioning v4')
 error=''
 try: main()
 except Exception as exc: error=safe(str(exc)); log('ERROR '+error)

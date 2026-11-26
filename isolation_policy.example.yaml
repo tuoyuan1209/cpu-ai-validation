@@ -1,0 +1,29 @@
+# 示例是旧机器基线，仅供字段参考；必须核对供应商承诺后才可批准。
+isolation_mechanism: isolcpus-domain
+online_cpus: '0-7'
+housekeeping_cpus: '0-3'
+isolated_cpus: '4-7'
+kthread_cpus: '0'
+test_cpu: 6
+vm:
+  name: cpu-isolation-vm
+  vcpu_count: 4
+  vcpu_pinning: {0: '0', 1: '1', 2: '2', 3: '3'}
+  emulator_cpus: '0-3'
+  guest_user: tester
+  guest_mac: null  # 多网卡时必须指定经过确认的 MAC
+  guest_ip: null   # 可选：必须与 lease/guest-agent 返回的 IP 一致
+  iothread_pinning: {}
+allow_load_tests: false  # 供应商授权压力测试后才改 true
+allow_io_test: false    # 供应商授权临时文件及虚拟网络负载后才改 true
+workload:
+  host_cpu_workers: auto
+  guest_cpu_workers: auto
+  scheduling_workers: auto
+realtime:
+  priority: 80
+  interval_us: 1000
+  short_duration_s: 60
+  long_duration_s: 3600
+  compare_isolated_cores: false
+  max_latency_us: null  # 供应商承诺的最大延迟；未设时采集数据但不通过验收

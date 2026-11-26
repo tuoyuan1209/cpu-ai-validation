@@ -5,8 +5,11 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 import yaml
 BASE=Path(__file__).resolve().parent.parent
+sys.path.insert(0,str(BASE))
+from common.policy import structured, validate, verify_only, workers
+from common.transport import guest_ssh
 os.umask(0o077)
-RID=dt.datetime.now(dt.timezone.utc).strftime('run-%Y%m%dT%H%M%SZ-')+uuid.uuid4().hex[:8]
+RID=os.environ.get('CPU_VALIDATION_RUN_ID') or dt.datetime.now(dt.timezone.utc).strftime('run-%Y%m%dT%H%M%SZ-')+uuid.uuid4().hex[:8]
 RUN=BASE/'runs'/RID; E=RUN/'evidence'; E.mkdir(parents=True); (BASE/'logs').mkdir(exist_ok=True)
 SECRET=os.environ.get('SUT_SUDO_PASSWORD',''); CASES=[]; SSH=[]; ENV={}
 def now(): return dt.datetime.now(dt.timezone.utc).isoformat()
@@ -20,20 +23,20 @@ def log(s):
     line=safe(f'{now()} [{RID}] {s}'); print(line,flush=True)
     for p in (RUN/'progress.log',BASE/'logs/live.log'):
         with p.open('a') as f: f.write(line+'\n')
-def dump(name,obj): (RUN/name).write_text(safe(json.dumps(obj,ensure_ascii=False,indent=2))+'\n')
+def dump(name,obj): (RUN/name).write_text(json.dumps(structured(obj),ensure_ascii=False,indent=2)+'\n')
 def case(i,name,status,expected,actual):
     CASES.append(dict(id=i,name=name,status=status,expected=str(expected),actual=str(actual),reason=f'expected={expected}; actual={actual}')); log(f'{i} {status}: {name}: {actual}')
 def run(label,cmd,root=False):
-    if root and (not SECRET or '\n' in SECRET or '\r' in SECRET): return None,''
-    if root: cmd='sudo -k -S -p "" -- sh -c '+shlex.quote(cmd)
+    if root and ('\n' in SECRET or '\r' in SECRET): return None,''
+    if root: cmd=('sudo -k -S -p ""' if SECRET else 'sudo -n')+' -- sh -c '+shlex.quote(cmd)
     argv=SSH+[cmd]; start=now(); t=time.monotonic(); rc=None; out=err=''; timed=False; log('START '+label)
     try:
-        p=subprocess.run(argv,input=SECRET+'\n' if root else '',text=True,capture_output=True,timeout=25,env={k:v for k,v in os.environ.items() if k not in ('SUT_SUDO_PASSWORD','SUT_SSH_PASSWORD')}); rc,out,err=p.returncode,p.stdout,p.stderr
+        p=subprocess.run(argv,input=SECRET+'\n' if root and SECRET else '',text=True,capture_output=True,timeout=25,env={k:v for k,v in os.environ.items() if k not in ('SUT_SUDO_PASSWORD','SUT_SSH_PASSWORD')}); rc,out,err=p.returncode,p.stdout,p.stderr
     except subprocess.TimeoutExpired as ex: timed=True; out=ex.stdout or ''; err=ex.stderr or ''
     except OSError as ex: err=str(ex)
     for ext,data in [('stdout',out),('stderr',err)]: (E/f'{label}.{ext}').write_text(safe(data))
     rec=dict(label=label,argv=argv,start=start,end=now(),elapsed_s=round(time.monotonic()-t,3),exit_code=rc,timeout=timed,stdout_file=f'evidence/{label}.stdout',stderr_file=f'evidence/{label}.stderr')
-    with (RUN/'execution.jsonl').open('a') as f: f.write(safe(json.dumps(rec))+'\n')
+    with (RUN/'execution.jsonl').open('a') as f: f.write(json.dumps(structured(rec),ensure_ascii=False)+'\n')
     log(f'END {label}: exit={rc}, timeout={timed}'); return rc,out.strip() if isinstance(out,str) else ''
 def cpus(s):
     result=set()
@@ -52,7 +55,7 @@ def compare(i,name,rc,actual,expected,parse=lambda x:x):
     case(i,name,status,expected,actual if rc==0 else '采集失败，查看证据')
 def main():
     global SSH
-    cfg=yaml.safe_load((BASE/'config.yaml').read_text()); policy=yaml.safe_load((BASE/'isolation_policy.yaml').read_text()); a=cfg.get('auth') or {}; host=str(cfg['host']); user=str(cfg['ssh_user']); port=int(cfg.get('ssh_port',22)); key=Path(a.get('ssh_key') or cfg.get('ssh_key') or '~/.ssh/id_ed25519').expanduser()
+    cfg=yaml.safe_load((BASE/'config.yaml').read_text()); policy=validate(yaml.safe_load((BASE/'isolation_policy.yaml').read_text()),load=False); verify_only(); a=cfg.get('auth') or {}; host=str(cfg['host']); user=str(cfg['ssh_user']); port=int(cfg.get('ssh_port',22)); key=Path(a.get('ssh_key') or cfg.get('ssh_key') or '~/.ssh/id_ed25519').expanduser()
     if not key.is_file() or not re.fullmatch(r'[A-Za-z0-9_.:-]+',host) or host.startswith('-') or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]*',user): raise ValueError('Invalid SSH configuration')
     SSH=['ssh','-T','-i',str(key),'-p',str(port),'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=10','-o','ConnectionAttempts=1','-o','ServerAliveInterval=5','-o','ServerAliveCountMax=2',user+'@'+host]
     online=str(policy['online_cpus']); iso=str(policy['isolated_cpus']); hk=str(policy['housekeeping_cpus']); kt=str(policy['kthread_cpus']); test=int(policy['test_cpu']); vm=policy['vm']; name=str(vm['name']); pins={int(k):cpus(str(v)) for k,v in vm['vcpu_pinning'].items()}; em=str(vm['emulator_cpus']); ENV.update(host=host,user=user,expected=policy)
@@ -87,7 +90,7 @@ def main():
     if rr==0 and state=='running': lr,live=run('vm_xml_live',prefix+'dumpxml '+q,True); live=live if lr==0 else None
     try:
         if r!=0 or rr!=0 or state not in ('running','shut off') or (state=='running' and live is None): raise ValueError('VM evidence unavailable')
-        docs=[ET.fromstring(x)]+([ET.fromstring(live)] if live else []); ap=[{int(z.attrib['vcpu']):cpus(z.attrib['cpuset']) for z in d.findall('./cputune/vcpupin')} for d in docs]; ae=[cpus(d.find('./cputune/emulatorpin').attrib['cpuset']) for d in docs]; mode='持久+运行配置' if live else '仅持久配置（关机）'; case('ISO12','KVM vCPU绑定','PASS' if all(p==pins for p in ap) else 'FAIL',pins,f'{mode}: {ap}'); case('ISO13','KVM模拟器绑定','PASS' if all(p==cpus(em) for p in ae) else 'FAIL',em,f'{mode}: {ae}')
+        docs=[ET.fromstring(x)]+([ET.fromstring(live)] if live else []); ap=[{int(z.attrib['vcpu']):cpus(z.attrib['cpuset']) for z in d.findall('./cputune/vcpupin')} for d in docs]; ae=[cpus(d.find('./cputune/emulatorpin').attrib['cpuset']) for d in docs]; mode='持久+运行配置' if live else '仅持久配置（关机）'; case('ISO12','KVM vCPU绑定','PASS' if live and all(p==pins for p in ap) else 'INCONCLUSIVE' if all(p==pins for p in ap) else 'FAIL',pins,f'{mode}: {ap}'); case('ISO13','KVM模拟器绑定','PASS' if live and all(p==cpus(em) for p in ae) else 'INCONCLUSIVE' if all(p==cpus(em) for p in ae) else 'FAIL',em,f'{mode}: {ae}')
     except (ValueError,KeyError,AttributeError,ET.ParseError):
         for i,n in [('ISO12','KVM vCPU绑定'),('ISO13','KVM模拟器绑定')]: case(i,n,'INCONCLUSIVE','匹配基线','虚拟机证据不足')
     run('interrupts_snapshot','cat /proc/interrupts'); run('thread_snapshot','ps -eLo pid,tid,psr,cls,rtprio,comm --sort=psr')

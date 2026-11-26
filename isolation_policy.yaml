@@ -1,6 +1,6 @@
-online_cpus: '0-7'
-housekeeping_cpus: '0-3'
-isolated_cpus: '4-7'
+online_cpus: 0-7
+housekeeping_cpus: 0-3
+isolated_cpus: 4-7
 kthread_cpus: '0'
 test_cpu: 6
 vm:
@@ -10,4 +10,23 @@ vm:
     1: '1'
     2: '2'
     3: '3'
-  emulator_cpus: '0-3'
+  emulator_cpus: 0-3
+  vcpu_count: 4
+  guest_user: tester
+  guest_mac: null
+  guest_ip: null
+  iothread_pinning: {}
+isolation_mechanism: isolcpus-domain
+workload:
+  host_cpu_workers: auto
+  guest_cpu_workers: auto
+  scheduling_workers: auto
+realtime:
+  priority: 80
+  interval_us: 1000
+  short_duration_s: 60
+  long_duration_s: 3600
+  compare_isolated_cores: false
+  max_latency_us: null
+allow_load_tests: false
+allow_io_test: false

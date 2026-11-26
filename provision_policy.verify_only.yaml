@@ -1,0 +1,15 @@
+validation_mode: verify
+provision:
+  auto_install_tools: false
+  auto_fix_permissions: false
+  auto_fix_dma: false
+  auto_install_kvm: false
+  auto_load_modules: false
+  auto_start_libvirt: false
+  auto_start_network: false
+  auto_create_vm: false
+  auto_start_vm: false
+  auto_fix_irq_affinity: false
+  auto_download_image: false
+virtualization:
+  auto_download_image: false

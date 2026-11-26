@@ -1,8 +1,0 @@
-{
-  "host": "192.168.41.10",
-  "ssh_user": "test",
-  "ssh_port": 22,
-  "hostname": "test-SBCPTLCX3R100",
-  "kernel": "6.17.11-intel-ese-experimental-lts-rt",
-  "stage": "provision-preflight"
-}

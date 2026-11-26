@@ -12,8 +12,10 @@ import time
 import uuid
 
 BASE = Path(__file__).resolve().parent.parent
+sys.path.insert(0,str(BASE))
+from common.policy import structured, clean_text
 os.umask(0o077)
-RUN_ID = dt.datetime.now(dt.timezone.utc).strftime('run-%Y%m%dT%H%M%SZ-') + uuid.uuid4().hex[:8]
+RUN_ID = os.environ.get('CPU_VALIDATION_RUN_ID') or dt.datetime.now(dt.timezone.utc).strftime('run-%Y%m%dT%H%M%SZ-') + uuid.uuid4().hex[:8]
 RUN = BASE / 'runs' / RUN_ID
 EVIDENCE = RUN / 'evidence'
 EVIDENCE.mkdir(parents=True)
@@ -45,7 +47,7 @@ def dump(path, obj):
         if isinstance(v, list): return [scrub(x) for x in v]
         if isinstance(v, dict): return {k: scrub(x) for k,x in v.items()}
         return v
-    path.write_text(json.dumps(scrub(obj), ensure_ascii=False, indent=2)+'\n')
+    path.write_text(json.dumps(structured(obj), ensure_ascii=False, indent=2)+'\n')
 
 cases = []
 environment = {}
@@ -72,7 +74,7 @@ def execute(label, argv, stdin=None):
     record = {'label': label, 'argv': argv, 'start': started, 'end': now(), 'elapsed_s': round(time.monotonic()-t,3), 'exit_code': rc, 'timeout': timed_out, 'stdout_file': f'evidence/{label}.stdout', 'stderr_file': f'evidence/{label}.stderr'}
     commands.append(record)
     with (RUN/'execution.jsonl').open('a') as f:
-        f.write(safe(json.dumps(record, ensure_ascii=False))+'\n')
+        f.write(json.dumps(structured(record), ensure_ascii=False)+'\n')
     log(f'END {label}: exit={rc}, timeout={timed_out}')
     return rc, out, timed_out
 
@@ -101,10 +103,10 @@ try:
     password = os.environ.get('SUT_SUDO_PASSWORD')
     if not identity_ok:
         case('TC05','sudo','NOT_EXECUTED','Remote identity not confirmed')
-    elif not password or '\n' in password or '\r' in password:
+    elif password and ('\n' in password or '\r' in password):
         case('TC05','sudo','INCONCLUSIVE','Usable SUT_SUDO_PASSWORD not injected into process')
     else:
-        rc, out, timed = execute('sudo',ssh+['sudo -k -S -p "" -- id -u'],password+'\n')
+        rc, out, timed = execute('sudo',ssh+['sudo -k -S -p "" -- id -u' if password else 'sudo -n -- id -u'],password+'\n' if password else '')
         ok = rc==0 and isinstance(out,str) and out.strip()=='0'
         case('TC05','sudo','PASS' if ok else ('TIMEOUT' if timed else 'FAIL'),'sudo returned UID 0' if ok else 'sudo verification failed; see evidence')
 except Exception as e:
@@ -122,7 +124,7 @@ finally:
     complete=bool(commands) and all(p.is_file() for p in required)
     case('TC06','Evidence presence','PASS' if complete else 'FAIL','Recorded command evidence exists' if complete else 'Missing execution evidence')
     overall='PASS' if all(c['status']=='PASS' for c in cases) else 'FAIL'
-    dump(RUN/'result.json',{'run_id':RUN_ID,'overall':overall,'cases':cases})
+    dump(RUN/'result.json',{'run_id':RUN_ID,'stage':'CPU-01','overall':overall,'cases':cases})
     with (RUN/'result.csv').open('w',newline='') as f:
         writer=csv.DictWriter(f,fieldnames=['id','name','status','reason']); writer.writeheader()
         for c in cases: writer.writerow({k:safe(v) for k,v in c.items()})

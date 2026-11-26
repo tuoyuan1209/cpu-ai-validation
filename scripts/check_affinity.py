@@ -5,8 +5,11 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 import yaml
 BASE=Path(__file__).resolve().parent.parent
+sys.path.insert(0,str(BASE))
+from common.policy import structured, validate, verify_only, workers
+from common.transport import guest_ssh
 os.umask(0o077)
-RID=dt.datetime.now(dt.timezone.utc).strftime('run-%Y%m%dT%H%M%SZ-')+uuid.uuid4().hex[:8]
+RID=os.environ.get('CPU_VALIDATION_RUN_ID') or dt.datetime.now(dt.timezone.utc).strftime('run-%Y%m%dT%H%M%SZ-')+uuid.uuid4().hex[:8]
 RUN=BASE/'runs'/RID; E=RUN/'evidence'; E.mkdir(parents=True); (BASE/'logs').mkdir(exist_ok=True)
 SECRET=os.environ.get('SUT_SUDO_PASSWORD',''); CASES=[]; SSH=[]; ENV={}
 def now(): return dt.datetime.now(dt.timezone.utc).isoformat()
@@ -20,20 +23,20 @@ def log(s):
     line=safe(f'{now()} [{RID}] {s}'); print(line,flush=True)
     for p in (RUN/'progress.log',BASE/'logs/live.log'):
         with p.open('a') as f: f.write(line+'\n')
-def dump(name,obj): (RUN/name).write_text(safe(json.dumps(obj,ensure_ascii=False,indent=2))+'\n')
+def dump(name,obj): (RUN/name).write_text(json.dumps(structured(obj),ensure_ascii=False,indent=2)+'\n')
 def case(i,name,status,expected,actual):
     CASES.append(dict(id=i,name=name,status=status,expected=str(expected),actual=str(actual),reason=f'expected={expected}; actual={actual}')); log(f'{i} {status}: {name}: {actual}')
 def run(label,cmd,root=False):
-    if root and (not SECRET or '\n' in SECRET or '\r' in SECRET): return None,''
-    if root: cmd='sudo -k -S -p "" -- sh -c '+shlex.quote(cmd)
+    if root and ('\n' in SECRET or '\r' in SECRET): return None,''
+    if root: cmd=('sudo -k -S -p ""' if SECRET else 'sudo -n')+' -- sh -c '+shlex.quote(cmd)
     argv=SSH+[cmd]; start=now(); t=time.monotonic(); rc=None; out=err=''; timed=False; log('START '+label)
     try:
-        p=subprocess.run(argv,input=SECRET+'\n' if root else '',text=True,capture_output=True,timeout=25,env={k:v for k,v in os.environ.items() if k not in ('SUT_SUDO_PASSWORD','SUT_SSH_PASSWORD')}); rc,out,err=p.returncode,p.stdout,p.stderr
+        p=subprocess.run(argv,input=SECRET+'\n' if root and SECRET else '',text=True,capture_output=True,timeout=25,env={k:v for k,v in os.environ.items() if k not in ('SUT_SUDO_PASSWORD','SUT_SSH_PASSWORD')}); rc,out,err=p.returncode,p.stdout,p.stderr
     except subprocess.TimeoutExpired as ex: timed=True; out=ex.stdout or ''; err=ex.stderr or ''
     except OSError as ex: err=str(ex)
     for ext,data in [('stdout',out),('stderr',err)]: (E/f'{label}.{ext}').write_text(safe(data))
     rec=dict(label=label,argv=argv,start=start,end=now(),elapsed_s=round(time.monotonic()-t,3),exit_code=rc,timeout=timed,stdout_file=f'evidence/{label}.stdout',stderr_file=f'evidence/{label}.stderr')
-    with (RUN/'execution.jsonl').open('a') as f: f.write(safe(json.dumps(rec))+'\n')
+    with (RUN/'execution.jsonl').open('a') as f: f.write(json.dumps(structured(rec),ensure_ascii=False)+'\n')
     log(f'END {label}: exit={rc}, timeout={timed}'); return rc,out.strip() if isinstance(out,str) else ''
 def cpus(s):
     result=set()
@@ -52,14 +55,14 @@ def compare(i,name,rc,actual,expected,parse=lambda x:x):
     case(i,name,status,expected,actual if rc==0 else '采集失败，查看证据')
 def main():
     global SSH
-    cfg=yaml.safe_load((BASE/'config.yaml').read_text()); policy=yaml.safe_load((BASE/'isolation_policy.yaml').read_text()); a=cfg.get('auth') or {}; host=str(cfg['host']); user=str(cfg['ssh_user']); port=int(cfg.get('ssh_port',22)); key=Path(a.get('ssh_key') or cfg.get('ssh_key') or '~/.ssh/id_ed25519').expanduser()
+    cfg=yaml.safe_load((BASE/'config.yaml').read_text()); policy=validate(yaml.safe_load((BASE/'isolation_policy.yaml').read_text()),load=True); verify_only(); a=cfg.get('auth') or {}; host=str(cfg['host']); user=str(cfg['ssh_user']); port=int(cfg.get('ssh_port',22)); key=Path(a.get('ssh_key') or cfg.get('ssh_key') or '~/.ssh/id_ed25519').expanduser()
     if not key.is_file() or not re.fullmatch(r'[A-Za-z0-9_.:-]+',host) or host.startswith('-') or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]*',user): raise ValueError('Invalid SSH configuration')
     SSH=['ssh','-T','-i',str(key),'-p',str(port),'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=10','-o','ConnectionAttempts=1',user+'@'+host]
     test=int(policy['test_cpu']); iso=cpus(str(policy['isolated_cpus'])); hk=cpus(str(policy['housekeeping_cpus'])); vm=policy['vm']; name=str(vm['name']); pins={int(k):cpus(str(v)) for k,v in vm['vcpu_pinning'].items()}; em=cpus(str(vm['emulator_cpus'])); ENV.update(host=host,user=user,expected=policy)
     r,o=run('identity','hostname && whoami && uname -r'); lines=o.splitlines()
     if r!=0 or len(lines)!=3 or lines[1]!=user: raise RuntimeError('SSH identity verification failed')
     r,on=run('online','cat /sys/devices/system/cpu/online'); rr,isol=run('isolated','cat /sys/devices/system/cpu/isolated')
-    if r!=0 or rr!=0 or test not in cpus(on)&cpus(isol) or cpus(isol)!=iso or not hk or hk&iso: raise RuntimeError('CPU baseline mismatch')
+    if r!=0 or rr!=0 or test not in cpus(on)&cpus(isol) or cpus(on)!=cpus(policy['online_cpus']) or cpus(isol)!=iso or not hk or hk&iso: raise RuntimeError('CPU baseline mismatch')
     probe='import os,time,json,ctypes\nlibc=ctypes.CDLL(None); libc.sched_getcpu.restype=ctypes.c_int\nallowed=sorted(os.sched_getaffinity(0)); samples=[]\nfor i in range(100):\n    samples.append(libc.sched_getcpu()); time.sleep(.01)\nprint(json.dumps(dict(pid=os.getpid(),allowed=allowed,samples=samples)))'
     for cid,cpu in [('AFF01',test),('AFF02',min(hk))]:
         r,o=run(cid.lower(),f'taskset -c {cpu} python3 -c '+shlex.quote(probe))
@@ -87,7 +90,7 @@ def main():
     entries=re.findall(r'TID (\d+)\s+Name:\s*([^\n]+)\s+Cpus_allowed_list:\s*([0-9,-]+)',o)
     other={int(t):(n,cpus(m)) for t,n,m in entries if int(t) not in tids.values()}; valid=r==0 and pid in other and bool(other)
     bad={t:(n,sorted(m)) for t,(n,m) in other.items() if not m or not m<=em}
-    case('AFF04','QEMU非vCPU线程亲和性','PASS' if valid and not bad else 'WARN' if valid else 'INCONCLUSIVE',f'非vCPU线程允许范围属于{sorted(em)}',f'线程数={len(other)}; 超范围={bad}')
+    case('AFF04','QEMU非vCPU线程亲和性','PASS' if valid and not bad else 'FAIL' if valid else 'INCONCLUSIVE',f'非vCPU线程允许范围属于{sorted(em)}',f'线程数={len(other)}; 超范围={bad}')
     r,o=run('qemu_thread_snapshot',f'ps -L -p {pid} -o pid,tid,psr,cls,rtprio,comm',True)
     case('AFF05','QEMU线程运行快照','PASS' if r==0 and o else 'INCONCLUSIVE','成功采集PSR快照','已采集（仅最近运行CPU，不证明持续绑定）' if r==0 and o else '采集失败')
 log('START CPU-04 runtime affinity verification')

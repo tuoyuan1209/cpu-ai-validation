@@ -7,3 +7,12 @@
 *.key
 __pycache__/
 .venv/
+logs/
+runs/
+.validation/
+*.bak
+*.pyc
+.ssh/
+config.yaml
+isolation_policy.yaml
+provision_policy.yaml
