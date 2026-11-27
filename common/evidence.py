@@ -10,6 +10,7 @@ def seal(p):
     p=Path(p); (p/'SHA256SUMS').write_text(''.join(f'{hashlib.sha256(f.read_bytes()).hexdigest()}  {f.relative_to(p)}\n' for f in sorted(p.rglob('*')) if f.is_file() and f.name!='SHA256SUMS'))
 def verify(p):
     p=Path(p); expected={}
+    if p.is_symlink() or any(x.is_symlink() for x in p.rglob('*')): raise ValueError('symbolic links are not permitted in evidence')
     for line in (p/'SHA256SUMS').read_text().splitlines():
         h,sep,n=line.partition('  ')
         if not sep or n in expected or Path(n).is_absolute() or '..' in Path(n).parts or len(h)!=64: raise ValueError('invalid evidence manifest')

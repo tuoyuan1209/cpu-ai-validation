@@ -266,6 +266,7 @@ def main():
                     return {p[2]:int(p[9]) for l in s.splitlines() if len(p:=l.split())>=14}
                 # fields: major minor name reads merged sectors ... writes merged sectors (index 9)
                 x,y=net(d['NET_BEFORE']),net(d['NET_AFTER']); nx=sum(y[k]-x[k] for k in x.keys()&y.keys() if k!='lo' and y[k]>=x[k]); x,y=disk(d['DISK_BEFORE']),disk(d['DISK_AFTER']); dx=sum(y[k]-x[k] for k in x.keys()&y.keys() if y[k]>=x[k]); metric.update(network_bytes_delta=nx,disk_write_sectors_delta=dx); valid=valid and nx>0 and dx>0
+            dump(f'evidence/{label}_metrics.json',dict(group=cid,condition=mode,elapsed_s=d['ELAPSED'],isolated_irq_counts=totals,isolated_device_irq_total=sum(totals.values()),irq_per_second=sum(totals.values())/d['ELAPSED'],valid_load=valid,load_metrics=metric,measurement='device IRQ increments, excludes local/IPI'))
             phases[cid]={'totals':totals,'valid':valid,'rows':rows,'metric':metric}
             case(cid,{'baseline':'基线设备IRQ','host':'物理机CPU负载设备IRQ','guest':'KVM负载设备IRQ','io':'网络及磁盘I/O设备IRQ'}[mode],'FAIL' if any(totals.values()) else 'PASS' if valid else 'INCONCLUSIVE','隔离CPU设备IRQ增量=0且负载有效',f'{totals}; {metric}; valid={valid}')
         except (ValueError,KeyError,TypeError,IndexError) as e: case(cid,mode,'INCONCLUSIVE','完整中断及负载证据',str(e))

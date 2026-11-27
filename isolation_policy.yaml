@@ -26,7 +26,7 @@ realtime:
   interval_us: 1000
   short_duration_s: 60
   long_duration_s: 3600
-  compare_isolated_cores: false
+  compare_isolated_cores: true
   max_latency_us: null
-allow_load_tests: false
-allow_io_test: false
+allow_load_tests: true
+allow_io_test: true

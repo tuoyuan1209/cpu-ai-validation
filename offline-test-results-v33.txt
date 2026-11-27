@@ -1,0 +1,34 @@
+V3.3 offline verification on installed source copy
+----------------------------------------------------------------------
+Ran 85 tests in 14.989s
+
+OK
+======================================================================
+ERROR: test_secret_collision_and_readonly_discovery (test_discovery_mock.DiscoveryMock.test_secret_collision_and_readonly_discovery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/v33/installtest/cpu_ai_validation/tests/test_discovery_mock.py", line 25, in test_secret_collision_and_readonly_discovery
+    env=dict(os.environ,PATH=str(bin)+':'+os.environ['PATH'],SUT_SUDO_PASSWORD='test',SUT_SSH_PASSWORD=''); z=subprocess.run([sys.executable,str(repo/'scripts/discover_sut.py')],env=env,capture_output=True,text=True,timeout=30)
+                                                                                                              ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.13/subprocess.py", line 556, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.13/subprocess.py", line 1222, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.13/subprocess.py", line 2129, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.13/subprocess.py", line 1269, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['/opt/pyvenv/bin/python', '/tmp/tmpz_d8mfyb/repo/scripts/discover_sut.py']' timed out after 30 seconds
+
+----------------------------------------------------------------------
+Ran 14 tests in 30.077s
+
+FAILED (errors=1)
+Engine: 13/14 passed, discovery mock timed out at 30s; not a full pass.
+Python and JavaScript syntax checks passed; both repository install and rollback passed; 13-15 template/import prompt matches passed.
+No actual SUT, Canvas API, or model contacted.

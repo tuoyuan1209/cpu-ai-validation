@@ -63,7 +63,7 @@ def main():
         probes={'topology':'LC_ALL=C lscpu -J','cpu_detail':'LC_ALL=C lscpu -e','os':'cat /etc/os-release','online':'cat /sys/devices/system/cpu/online','isolated':'cat /sys/devices/system/cpu/isolated','nohz_full':'cat /sys/devices/system/cpu/nohz_full','realtime':'cat /sys/kernel/realtime','cmdline':'cat /proc/cmdline','pid1_affinity':'grep Cpus_allowed_list /proc/1/status','ssh_affinity':'grep Cpus_allowed_list /proc/self/status','cgroup':'cat /proc/self/cgroup; findmnt -t cgroup,cgroup2','cpusets':'find /sys/fs/cgroup -maxdepth 6 -type f \\( -name cpuset.cpus -o -name cpuset.cpus.effective -o -name cpuset.cpus.partition \\) -print -exec cat {} \\;','irq_default':'cat /proc/irq/default_smp_affinity','workqueue':'cat /sys/devices/virtual/workqueue/cpumask','interrupts':'cat /proc/interrupts','irq_effective':'for f in /proc/irq/[0-9]*/effective_affinity_list; do [ -e "$f" ] || continue; printf "%s " "$f"; cat "$f"; done','threads':'ps -eLo pid,tid,psr,cls,rtprio,comm','virtualization':'systemd-detect-virt; ls -l /dev/kvm; lsmod | grep -E "^kvm"; command -v virsh; command -v qemu-system-x86_64; true','tools':'for t in python3 cyclictest stress-ng taskset chrt numactl virsh; do printf "%s " "$t"; command -v "$t" || echo MISSING; done','limits':'ulimit -r; ulimit -l; ls -l /dev/cpu_dma_latency','nvme_queues':'for f in /sys/block/nvme*/mq/*/cpu_list; do [ -e "$f" ] || continue; printf "%s " "$f"; cat "$f"; done','network':'ip -br addr; ip route'}
         for k,cmd in probes.items(): data[k]=get(k,cmd)
         vir='LC_ALL=C virsh -r -c qemu:///system '
-        names=get('vm_list',vir+'list --all --name',True)
+        names=get('vm_list',vir+'list --all --name',True); data['vm_inventory_complete']=names is not None
         if names is None: notes.append('libvirt read-only query unavailable; non-libvirt deployment not automatically interpreted')
         else:
             for i,n in enumerate(names.splitlines()):
@@ -76,7 +76,7 @@ def main():
         if a.preflight: verify_only()
         target=a.vm or (policy['vm']['name'] if policy else None)
         selected=next((x for x in vms if x['name']==target),None) if target else vms[0] if len(vms)==1 else None
-        candidate=dict(online_cpus=data['online'],isolated_cpus=data['isolated'],housekeeping_cpus=fmt(online-iso) if online is not None and iso is not None and iso else None,kthread_cpus=args.get('kthread_cpus'),test_cpu=None,vm=None)
+        candidate=dict(online_cpus=data['online'],isolated_cpus=data['isolated'],housekeeping_cpus=fmt(online-iso) if online is not None and iso is not None else None,kthread_cpus=args.get('kthread_cpus'),test_cpu=None,vm=None)
         if selected and selected['persistent']:
             v=selected['persistent']; candidate['vm']={k:v[k] for k in ('name','vcpu_count','vcpu_pinning','emulator_cpus','iothread_pinning')}
             candidate['vm'].update(guest_user=None,guest_mac=None,guest_ip=None)
@@ -102,7 +102,10 @@ def main():
             except Exception as exc: case('TP09','guest readiness','INCONCLUSIVE',str(exc))
             case('TP10','host limits evidence capture','INCONCLUSIVE' if data['limits'] is None else 'PASS',{'observed':data['limits'],'scope':'read-only limits capture; actual FIFO scheduling tested later'})
     except Exception as ex: case('ERROR','collection error','INCONCLUSIVE',str(ex))
-    dump('environment.json',dict(host=host,ssh_user=user,stage=stage,script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())); dump('observed.json',data); dump('vm_config.json',vms); dump('notes.json',notes)
+    env_record = structured(dict(host=host,ssh_user=user,ssh_port=port,stage=stage,script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest()))
+    env_record['target_sha256'] = hashlib.sha256(json.dumps([host,user,port],separators=(',',':')).encode()).hexdigest()
+    (run/'environment.json').write_text(json.dumps(env_record,ensure_ascii=False,indent=2)+'\n')
+    dump('observed.json',data); dump('vm_config.json',vms); dump('notes.json',notes)
     (run/'isolation_policy.detected.yaml').write_text(yaml.safe_dump(scrub(candidate),allow_unicode=True,sort_keys=False))
     (run/'provision_policy.detected.yaml').write_text(yaml.safe_dump({'validation_mode':'verify','provision':{k:False for k in ['auto_install_tools','auto_fix_permissions','auto_fix_dma','auto_install_kvm','auto_load_modules','auto_start_libvirt','auto_start_network','auto_create_vm','auto_start_vm','auto_fix_irq_affinity','auto_download_image']},'virtualization':{'auto_download_image':False,'name':scrub((candidate.get('vm') or {}).get('name')),'guest_user':None}},sort_keys=False))
     overall='FAIL' if any(c['status']=='FAIL' for c in cases) else 'INCONCLUSIVE' if any(c['status']=='INCONCLUSIVE' for c in cases) else 'PASS'; dump('result.json',dict(run_id=rid,stage=stage,overall=overall,cases=cases)); (run/'report.md').write_text(safe('# '+stage+' '+overall+'\n\n'+'\n'.join(f"- {c['id']} {c['status']} {c['name']}: {c['actual']}" for c in cases)+'\n\n'+'\n'.join(notes)+'\n')); log(f'FINISH {overall}; evidence directory: {run}'); (run/'SHA256SUMS').write_text(''.join(f'{hashlib.sha256(f.read_bytes()).hexdigest()}  {f.relative_to(run)}\n' for f in sorted(run.rglob('*')) if f.is_file() and f.name!='SHA256SUMS')); return 0 if overall=='PASS' else 1

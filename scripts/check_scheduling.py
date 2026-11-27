@@ -171,6 +171,7 @@ def main():
             bad=set(counts)-expected; valid=not explicit or all(set(m)==expected for m in masks)
             # Busy phase must actually consume CPU; no claim of full saturation.
             if b and ct<s*len(hk)*.8: raise ValueError('insufficient CPU activity for high-load phase')
+            dump('evidence/'+cid.lower()+'_metrics.json',dict(group=cid,condition='explicit_pin' if explicit else 'broad_affinity' if broad else 'default_busy' if b else 'default',workers=n,planned_seconds=s,cpu_samples=counts,total_samples=sum(counts.values()),isolated_samples=sum(v for k,v in counts.items() if k in iso),expected_cpu_samples=sum(v for k,v in counts.items() if k in expected),cpu_seconds=ct,affinity_masks=masks,measurement='samples, not exhaustive migration events'))
             case(cid,'显式绑定对照' if explicit else '扩大亲和性探索采样' if broad else '默认环境实际调度采样','PASS' if not bad and valid else 'WARN' if broad else 'FAIL',f'CPU {sorted(expected)}; {n} workers; {s}s',f'counts={counts}; allowed={masks}; cpu_seconds={ct:.2f}')
             return counts
         except (ValueError,KeyError,TypeError) as e:
@@ -187,6 +188,7 @@ def main():
         if r!=0: raise ValueError('guest workload or host sampling failed; inspect stdout/stderr')
         d=json.loads(o); counts,masks,ct=inspect_rows(d['rows'],n,10,online,False); busy=float(d['guest']['busy_fraction'])
         if not 0.5<=busy<=1 or d['probe_elapsed']>17 or ct<5: raise ValueError(f'insufficient overlapping workload evidence: {d["guest"]}; elapsed={d["probe_elapsed"]}')
+        dump('evidence/sch06_metrics.json',dict(group='SCH06',condition='host_guest',workers=n,planned_seconds=10,elapsed_s=d['probe_elapsed'],cpu_samples=counts,total_samples=sum(counts.values()),isolated_samples=sum(v for k,v in counts.items() if k in iso),cpu_seconds=ct,guest_busy=busy,affinity_masks=masks,measurement='samples, not exhaustive migration events'))
         case('SCH06','KVM负载下普通任务调度','PASS' if set(counts)<=hk else 'FAIL','普通任务仅在housekeeping CPU；guest busy >=50%',f'counts={counts}; guest_busy={busy:.1%}; host_cpu_seconds={ct:.2f}')
     except (ValueError,KeyError,TypeError) as e: case('SCH06','KVM负载下普通任务调度','INCONCLUSIVE','有效并发负载证据',str(e))
 log('START CPU-05 scheduling isolation verification')
